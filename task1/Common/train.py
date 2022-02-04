@@ -1,3 +1,4 @@
+import time
 import os
 import random
 import uuid
@@ -54,8 +55,8 @@ def train_model(args,multi_model):
         model = BGANet(n_class=args.n_class,rnn_type=args.rnn_type)
     elif args.model == 'BGAMultiHeadNet':
         model = BGAMultiHeadNet(n_class=args.n_class,rnn_type=args.rnn_type,cnn_dropout=args.cnn_dropout)
-    elif args.model == 'bcbla':
-        model = BCBLA(n_class=args.n_class, cnn_dropout=args.cnn_dropout, filter_sizes=(2, 3, 4),
+    elif args.model == 'BGANetNoneGate':
+        model = BGANetNoneGate(n_class=args.n_class, cnn_dropout=args.cnn_dropout, filter_sizes=(2, 3, 4),
                       rnn_type=args.rnn_type, pretrained_model_name_or_path=args.pretrained_dir)
     elif args.model == 'bertcnn':
         model = BertCNN(n_class=args.n_class, cnn_dropout=args.cnn_dropout, filter_sizes=(2, 3, 4),
@@ -74,6 +75,8 @@ def train_model(args,multi_model):
     acc_value_list = []
     pre_value_list = []
     rec_value_list = []
+    start = time.time()
+    print("start time:%f"%start)
     for num in range(args.epoch_times):
         loss_total = 0
         model.to(device)
@@ -99,8 +102,14 @@ def train_model(args,multi_model):
         torch.save(model, args.model_file)
         tmp_loss = loss_total / len(train_dataloader)
         loss_value_list.append(tmp_loss)
-        print("Test training time: %d, loss value:%0.4f, f1-score:%0.4f, acc-score:%0.4f, pre-score:%0.4f, rec-score:%0.4f" \
-                        % (num, tmp_loss, f1_val, acc_val, pre_val, rec_val))
+        temp_time = time.time()
+        print("Test training time: %d, loss value:%0.4f, f1-score:%0.4f, acc-score:%0.4f, pre-score:%0.4f, rec-score:%0.4f, time:%0.4f" \
+                        % (num, tmp_loss, f1_val, acc_val, pre_val, rec_val,temp_time-start))
+    end = time.time()
+    print("end time:%f"%end)
+    save_time_file = os.path.join(args.log_dir,args.model_name+"_time.txt")
+    with open(save_time_file,mode="w",encoding="utf-8") as wfp:
+    	wfp.write(str(end-start)+"\n")
     draw(loss_value_list, args.loss_figure_file, "loss","loss",)
     draw(f1_value_list, args.f1_figure_file, "f1-score", "f1-score")
     draw(acc_value_list, args.acc_figure_file, "accuracy-score", "accuracy-score")

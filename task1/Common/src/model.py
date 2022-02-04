@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from transformers.models.bert import BertModel
-from .layers import BiRNNAtt,TextCNN,BiRNNAttMultiHead
+from .layers import BiRNNAtt,TextCNN,BiRNNAttMultiHead,AttnMatch
 class BGANetNoneGate(nn.Module):
     def __init__(self,n_class=2,
                  pretrained_model_name_or_path="bert-base-chinese",

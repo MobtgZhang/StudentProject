@@ -17,8 +17,8 @@ def arg_parase():
                         help='The pretrained model path.')
     parser.add_argument('--learning-rate', default=2e-5, type=float, help='The learning rate of the training model.')
     parser.add_argument('--rnn-type', default='lstm', type=str, help='The RNN type of training model.')
-    parser.add_argument('--cnn-dropout', default=0.7, type=float, help='The RNN type of training model.')
-    parser.add_argument('--rnn-dropout', default=0.8, type=float, help='The RNN type of training model.')
+    parser.add_argument('--cnn-dropout', default=0.2, type=float, help='The RNN type of training model.')
+    parser.add_argument('--rnn-dropout', default=0.15, type=float, help='The RNN type of training model.')
     parser.add_argument('--dataset', default='student', type=str, help='The dataset of training model.')
     parser.add_argument('--model',default='BGAMultiHeadNet', type=str,help='The pretrained model path.')
     parser.add_argument('--student-raw',default='心得体会汇总2020-2021.xlsx',type=str,help='The raw student file.')
@@ -31,7 +31,7 @@ def check_args(args):
     args.dataset = args.dataset.lower()
     #args.model = args.model.lower()
     #args.model_name = args.model +"_"+args.rnn_type.upper() +"_" + str(uuid.uuid1()).replace('-','').upper()
-    if args.model == 'bcbla' or args.model == 'bertrnn' or args.model == 'BGANet':
+    if args.model == 'BGANetNoneGate' or args.model == 'bertrnn' or args.model == 'BGANet':
         args.model_name = args.model + "_" + args.rnn_type + "_" + str(uuid.uuid1()).replace('-','').upper()
     else:
         args.model_name = args.model + "_" + str(uuid.uuid1()).replace('-','').upper()
