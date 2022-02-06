@@ -10,17 +10,16 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
-from sklearn.model_selection import KFold
 
 logging.basicConfig(level = logging.INFO,format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger()
 
 from config import arg_parase,check_args,save_args
 
-from src.data import StudentAttitudeDataset,batchfy
+from src.data import StudentAttitudeDataset,batchfy,ReviewDataset
 from src.model import BGANet,TCHNN,CNNModel,RNNModel,AttModel
 from src.evaluate import evaluate_multilabel_model
-from src.utils import get_raw_student_dataset
+from src.utils import get_raw_student_dataset,get_raw_hotel_restaurant_dataset
 
 def draw(data_list,loss_figure_file,ylabel,name):
     x = np.linspace(0, len(data_list) - 1, len(data_list))
@@ -39,56 +38,29 @@ def draw_corr(corr_mat,corr_file):
     sns.heatmap(corr_mat, cmap='Blues')
     plt.savefig(corr_file)
     plt.close()
-def train_model(args):
+def train_model(args,train_dataset,test_dataset):
     device = 'cuda' if torch.cuda.is_available() and args.cuda else 'cpu'
-    tokenizer = AutoTokenizer.from_pretrained(args.pretrained_dir)
     
-    all_data_file = os.path.join(args.data_dir,args.dataset,'processed-'+args.version+'.xlsx')
-    raw_train,raw_test = get_raw_student_dataset(all_data_file,percentage=args.percentage,version=args.version)
-    train_dataset = StudentAttitudeDataset(raw_train, tokenizer=tokenizer, max_limits=args.max_seqlen)
-    test_dataset = StudentAttitudeDataset(raw_test, tokenizer=tokenizer, max_limits=args.max_seqlen)
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, collate_fn=batchfy)
     test_dataloader = DataLoader(test_dataset, batch_size=args.test_batch_size, shuffle=False, collate_fn=batchfy)
     # 模型准备
     if args.model == 'BGANet':
         model = BGANet(n_filters=args.n_filters,n_class=args.n_class,num_layers=args.num_layers,rnn_type=args.rnn_type,
                 filter_sizes=(2, 3, 4),cnn_dropout=args.cnn_dropout,
-                multiple=False,gate_flag = True, pretrained_model_name_or_path=args.pretrained_dir)
-    elif args.model == 'BGANetMulti':
-        model = BGANet(n_filters=args.n_filters,n_class=args.n_class,num_layers=args.num_layers,rnn_type=args.rnn_type,
-                filter_sizes=(2, 3, 4),cnn_dropout=args.cnn_dropout,
-                multiple=True,gate_flag = True, pretrained_model_name_or_path=args.pretrained_dir)
-    elif args.model == 'BGANetNoneGate':
-        model = BGANet(n_filters=args.n_filters,n_class=args.n_class,num_layers=args.num_layers,rnn_type=args.rnn_type,
-                filter_sizes=(2, 3, 4),cnn_dropout=args.cnn_dropout,
-                multiple=False,gate_flag = False, pretrained_model_name_or_path=args.pretrained_dir)
-    elif args.model == 'BGANetMultiNoneGate':
-        model = BGANet(n_filters=args.n_filters,n_class=args.n_class,num_layers=args.num_layers,rnn_type=args.rnn_type,
-                filter_sizes=(2, 3, 4),cnn_dropout=args.cnn_dropout,
-                multiple=True,gate_flag = False, pretrained_model_name_or_path=args.pretrained_dir)
+                multiple=args.multiple,gate_flag = args.gate_flag, pretrained_model_name_or_path=args.pretrained_dir)
     elif args.model == 'BertCNN':
         model = CNNModel(n_filters=args.n_filters,n_class=args.n_class,cnn_dropout = args.cnn_dropout,
                 filter_sizes = (2,3,4), pretrained_model_name_or_path=args.pretrained_dir)
     elif args.model == 'BertRNN':
         model = RNNModel(n_filters=args.n_filters,num_layers=args.num_layers,n_class=args.n_class,rnn_type=args.rnn_type,
-                multiple=False, pretrained_model_name_or_path=args.pretrained_dir)
-    elif args.model == 'BertRNNMulti':
-        model = RNNModel(n_filters=args.n_filters,num_layers=args.num_layers,n_class=args.n_class,rnn_type=args.rnn_type,
-                multiple=False, pretrained_model_name_or_path=args.pretrained_dir)
+                multiple=args.multiple, pretrained_model_name_or_path=args.pretrained_dir)
     elif args.model == 'Bert':
         model = AttModel(n_filters=args.n_filters,num_layers=args.num_layers,n_class=args.n_class,rnn_type=args.rnn_type,
                 multiple=False, pretrained_model_name_or_path=args.pretrained_dir)
-    elif args.model == 'BertMulti':
-        model = AttModel(n_filters=args.n_filters,num_layers=args.num_layers,n_class=args.n_class,rnn_type=args.rnn_type,
-                multiple=True, pretrained_model_name_or_path=args.pretrained_dir)
     elif args.model == 'TCHNN':
         model = TCHNN(num_caps=args.num_caps,dim_caps=args.dim_caps,num_routing=args.num_routing,n_class=args.n_class,
                 num_layers=args.num_layers,rnn_type=args.rnn_type,
-                bi_multiple=False,cap_multiple=False,gate_flag=False,pretrained_model_name_or_path=args.pretrained_dir)
-    elif args.model == 'TCHNNGate':
-        model = TCHNN(num_caps=args.num_caps,dim_caps=args.dim_caps,num_routing=args.num_routing,n_class=args.n_class,
-                num_layers=args.num_layers,rnn_type=args.rnn_type,
-                bi_multiple=False,cap_multiple=False,gate_flag=True,pretrained_model_name_or_path=args.pretrained_dir)
+                bi_multiple=args.bi_multiple,cap_multiple=args.cap_multiple,gate_flag=args.gate_flag,pretrained_model_name_or_path=args.pretrained_dir)
     else:
         raise ValueError("Unknown model %s" % args.model)
 
@@ -165,13 +137,27 @@ def main():
     # 第四步，将logger添加到handler里面
     logger.addHandler(fh)
     logger.info(str(args))
+    tokenizer = AutoTokenizer.from_pretrained(args.pretrained_dir)
     if args.dataset == 'student':
         args.n_class = 3
         file_xlsx = os.path.join(args.data_dir,'student', 'processed-' + args.version + '.xlsx')
-        raw_xlsx = os.path.join(args.data_dir,'student',args.student_raw)
-        if not os.path.exists(file_xlsx):
-            output = pd.read_excel(raw_xlsx)
-            output.loc[:,['总序号','content','态度标签']].to_excel(file_xlsx,index=None)
-        train_model(args)
+        raw_train,raw_test,seq_len = get_raw_student_dataset(file_xlsx,percentage=args.percentage,version=args.version)
+        args.mean_seq_len = seq_len
+        train_dataset = StudentAttitudeDataset(raw_train, tokenizer=tokenizer, max_limits=args.max_seqlen)
+        test_dataset = StudentAttitudeDataset(raw_test, tokenizer=tokenizer, max_limits=args.max_seqlen)
+    elif args.dataset == 'hotel':
+        args.n_class = 2
+        file_csv= os.path.join(args.data_dir,'hotel','ChnSentiCorp_htl_all.csv')
+        raw_train,raw_test,seq_len = get_raw_hotel_restaurant_dataset(file_csv,percentage=args.percentage)
+        args.mean_seq_len = seq_len
+        train_dataset = ReviewDataset(raw_train, tokenizer=tokenizer, max_limits=args.max_seqlen)
+        test_dataset = ReviewDataset(raw_test, tokenizer=tokenizer, max_limits=args.max_seqlen)
+    elif args.dataset == 'restaurant':
+        args.n_class = 2
+        file_csv= os.path.join(args.data_dir,'restaurant','waimai_10k.csv')
+        raw_train,raw_test = get_raw_hotel_restaurant_dataset(file_csv,percentage=args.percentage)
+        train_dataset = ReviewDataset(raw_train, tokenizer=tokenizer, max_limits=args.max_seqlen)
+        test_dataset = ReviewDataset(raw_test, tokenizer=tokenizer, max_limits=args.max_seqlen)
+    train_model(args,train_dataset,test_dataset)
 if __name__ == '__main__':
     main()

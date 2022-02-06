@@ -45,3 +45,16 @@ class StudentAttitudeDataset(Dataset):
         return index,in_ids,label
     def __len__(self):
         return len(self.dataset)
+class ReviewDataset(Dataset):
+    def __init__(self,dataset,tokenizer,max_limits=128):
+        self.dataset = dataset
+        self.tokenizer = tokenizer
+        self.max_limits = max_limits
+    def __getitem__(self, item):
+        index = int(item)
+        in_text= self.dataset.iloc[item]['review']
+        label = self.dataset.iloc[item]['label']
+        in_ids = convert_text_to_token(self.tokenizer,in_text,self.max_limits)
+        return index,in_ids,label
+    def __len__(self):
+        return len(self.dataset)
