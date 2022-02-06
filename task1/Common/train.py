@@ -1,7 +1,6 @@
 import time
 import os
-import random
-import uuid
+import logging
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -11,14 +10,15 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
-import sklearn
 from sklearn.model_selection import KFold
+
+logging.basicConfig(level = logging.INFO,format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger()
 
 from config import arg_parase,check_args,save_args
 
 from src.data import StudentAttitudeDataset,batchfy
-from src.model import BGANet,BGAMultiHeadNet,BGANetNoneGate
-from src.bert import BertCNN,BertRNN,BertAtt
+from src.model import BGANet,TCHNN,CNNModel,RNNModel,AttModel
 from src.evaluate import evaluate_multilabel_model
 from src.utils import get_raw_student_dataset
 
@@ -39,9 +39,8 @@ def draw_corr(corr_mat,corr_file):
     sns.heatmap(corr_mat, cmap='Blues')
     plt.savefig(corr_file)
     plt.close()
-def train_model(args,multi_model):
+def train_model(args):
     device = 'cuda' if torch.cuda.is_available() and args.cuda else 'cpu'
-    print(args)
     tokenizer = AutoTokenizer.from_pretrained(args.pretrained_dir)
     
     all_data_file = os.path.join(args.data_dir,args.dataset,'processed-'+args.version+'.xlsx')
@@ -52,19 +51,44 @@ def train_model(args,multi_model):
     test_dataloader = DataLoader(test_dataset, batch_size=args.test_batch_size, shuffle=False, collate_fn=batchfy)
     # 模型准备
     if args.model == 'BGANet':
-        model = BGANet(n_class=args.n_class,rnn_type=args.rnn_type)
-    elif args.model == 'BGAMultiHeadNet':
-        model = BGAMultiHeadNet(n_class=args.n_class,rnn_type=args.rnn_type,cnn_dropout=args.cnn_dropout)
+        model = BGANet(n_filters=args.n_filters,n_class=args.n_class,num_layers=args.num_layers,rnn_type=args.rnn_type,
+                filter_sizes=(2, 3, 4),cnn_dropout=args.cnn_dropout,
+                multiple=False,gate_flag = True, pretrained_model_name_or_path=args.pretrained_dir)
+    elif args.model == 'BGANetMulti':
+        model = BGANet(n_filters=args.n_filters,n_class=args.n_class,num_layers=args.num_layers,rnn_type=args.rnn_type,
+                filter_sizes=(2, 3, 4),cnn_dropout=args.cnn_dropout,
+                multiple=True,gate_flag = True, pretrained_model_name_or_path=args.pretrained_dir)
     elif args.model == 'BGANetNoneGate':
-        model = BGANetNoneGate(n_class=args.n_class, cnn_dropout=args.cnn_dropout, filter_sizes=(2, 3, 4),
-                      rnn_type=args.rnn_type, pretrained_model_name_or_path=args.pretrained_dir)
-    elif args.model == 'bertcnn':
-        model = BertCNN(n_class=args.n_class, cnn_dropout=args.cnn_dropout, filter_sizes=(2, 3, 4),
-                        pretrained_model_name_or_path=args.pretrained_dir)
-    elif args.model == 'bertrnn':
-        model = BertRNN(n_class=args.n_class, rnn_type=args.rnn_type, pretrained_model_name_or_path=args.pretrained_dir)
-    elif args.model == 'bert':
-        model = BertAtt(n_class=args.n_class, pretrained_model_name_or_path=args.pretrained_dir)
+        model = BGANet(n_filters=args.n_filters,n_class=args.n_class,num_layers=args.num_layers,rnn_type=args.rnn_type,
+                filter_sizes=(2, 3, 4),cnn_dropout=args.cnn_dropout,
+                multiple=False,gate_flag = False, pretrained_model_name_or_path=args.pretrained_dir)
+    elif args.model == 'BGANetMultiNoneGate':
+        model = BGANet(n_filters=args.n_filters,n_class=args.n_class,num_layers=args.num_layers,rnn_type=args.rnn_type,
+                filter_sizes=(2, 3, 4),cnn_dropout=args.cnn_dropout,
+                multiple=True,gate_flag = False, pretrained_model_name_or_path=args.pretrained_dir)
+    elif args.model == 'BertCNN':
+        model = CNNModel(n_filters=args.n_filters,n_class=args.n_class,cnn_dropout = args.cnn_dropout,
+                filter_sizes = (2,3,4), pretrained_model_name_or_path=args.pretrained_dir)
+    elif args.model == 'BertRNN':
+        model = RNNModel(n_filters=args.n_filters,num_layers=args.num_layers,n_class=args.n_class,rnn_type=args.rnn_type,
+                multiple=False, pretrained_model_name_or_path=args.pretrained_dir)
+    elif args.model == 'BertRNNMulti':
+        model = RNNModel(n_filters=args.n_filters,num_layers=args.num_layers,n_class=args.n_class,rnn_type=args.rnn_type,
+                multiple=False, pretrained_model_name_or_path=args.pretrained_dir)
+    elif args.model == 'Bert':
+        model = AttModel(n_filters=args.n_filters,num_layers=args.num_layers,n_class=args.n_class,rnn_type=args.rnn_type,
+                multiple=False, pretrained_model_name_or_path=args.pretrained_dir)
+    elif args.model == 'BertMulti':
+        model = AttModel(n_filters=args.n_filters,num_layers=args.num_layers,n_class=args.n_class,rnn_type=args.rnn_type,
+                multiple=True, pretrained_model_name_or_path=args.pretrained_dir)
+    elif args.model == 'TCHNN':
+        model = TCHNN(num_caps=args.num_caps,dim_caps=args.dim_caps,num_routing=args.num_routing,n_class=args.n_class,
+                num_layers=args.num_layers,rnn_type=args.rnn_type,
+                bi_multiple=False,cap_multiple=False,gate_flag=False,pretrained_model_name_or_path=args.pretrained_dir)
+    elif args.model == 'TCHNNGate':
+        model = TCHNN(num_caps=args.num_caps,dim_caps=args.dim_caps,num_routing=args.num_routing,n_class=args.n_class,
+                num_layers=args.num_layers,rnn_type=args.rnn_type,
+                bi_multiple=False,cap_multiple=False,gate_flag=True,pretrained_model_name_or_path=args.pretrained_dir)
     else:
         raise ValueError("Unknown model %s" % args.model)
 
@@ -76,7 +100,7 @@ def train_model(args,multi_model):
     pre_value_list = []
     rec_value_list = []
     start = time.time()
-    print("start time:%f"%start)
+    logger.info("start time:%f"%start)
     for num in range(args.epoch_times):
         loss_total = 0
         model.to(device)
@@ -103,13 +127,13 @@ def train_model(args,multi_model):
         tmp_loss = loss_total / len(train_dataloader)
         loss_value_list.append(tmp_loss)
         temp_time = time.time()
-        print("Test training time: %d, loss value:%0.4f, f1-score:%0.4f, acc-score:%0.4f, pre-score:%0.4f, rec-score:%0.4f, time:%0.4f" \
+        logger.info("Test training time: %d, loss value:%0.4f, f1-score:%0.4f, acc-score:%0.4f, pre-score:%0.4f, rec-score:%0.4f, time:%0.4f" \
                         % (num, tmp_loss, f1_val, acc_val, pre_val, rec_val,temp_time-start))
     end = time.time()
-    print("end time:%f"%end)
+    logger.info("end time:%f"%end)
     save_time_file = os.path.join(args.log_dir,args.model_name+"_time.txt")
     with open(save_time_file,mode="w",encoding="utf-8") as wfp:
-    	wfp.write(str(end-start)+"\n")
+        wfp.write(str(end-start)+"\n")
     draw(loss_value_list, args.loss_figure_file, "loss","loss",)
     draw(f1_value_list, args.f1_figure_file, "f1-score", "f1-score")
     draw(acc_value_list, args.acc_figure_file, "accuracy-score", "accuracy-score")
@@ -125,6 +149,22 @@ def train_model(args,multi_model):
 def main():
     args = arg_parase()
     check_args(args)
+    if not os.path.exists(args.log_dir):
+        os.mkdir(args.log_dir)
+    # 第一步，创建一个logger
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)  # Log等级总开关
+    # 第二步，创建一个handler，用于写入日志文件
+    rq = time.strftime('%Y%m%d%H%M', time.localtime(time.time()))
+    logfile = os.path.join(args.log_dir,rq + '.log')
+    fh = logging.FileHandler(logfile, mode='w')
+    fh.setLevel(logging.DEBUG)  # 输出到file的log等级的开关
+    # 第三步，定义handler的输出格式
+    formatter = logging.Formatter("%(asctime)s - %(filename)s[line:%(lineno)d] - %(levelname)s: %(message)s")
+    fh.setFormatter(formatter)
+    # 第四步，将logger添加到handler里面
+    logger.addHandler(fh)
+    logger.info(str(args))
     if args.dataset == 'student':
         args.n_class = 3
         file_xlsx = os.path.join(args.data_dir,'student', 'processed-' + args.version + '.xlsx')
@@ -132,6 +172,6 @@ def main():
         if not os.path.exists(file_xlsx):
             output = pd.read_excel(raw_xlsx)
             output.loc[:,['总序号','content','态度标签']].to_excel(file_xlsx,index=None)
-        train_model(args,multi_model=True)
+        train_model(args)
 if __name__ == '__main__':
     main()

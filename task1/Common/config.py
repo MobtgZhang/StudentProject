@@ -15,12 +15,17 @@ def arg_parase():
     # parser.add_argument('--force-times', default=10, type=int, help='The max length of the  force learning times.')
     parser.add_argument('--pretrained-dir', default='bert-base-chinese', type=str,
                         help='The pretrained model path.')
-    parser.add_argument('--learning-rate', default=2e-5, type=float, help='The learning rate of the training model.')
+    parser.add_argument('--learning-rate', default=1e-2, type=float, help='The learning rate of the training model.')
     parser.add_argument('--rnn-type', default='lstm', type=str, help='The RNN type of training model.')
     parser.add_argument('--cnn-dropout', default=0.2, type=float, help='The RNN type of training model.')
-    parser.add_argument('--rnn-dropout', default=0.15, type=float, help='The RNN type of training model.')
+    parser.add_argument('--n-filters', default=32, type=int, help='The number filters of training model.')
+    parser.add_argument('--num-layers', default=1, type=int, help='The number layers of training model.')
+
+    parser.add_argument('--num-caps', default=4, type=int, help='The number layers of training model.')
+    parser.add_argument('--dim-caps', default=32, type=int, help='The number layers of training model.')
+    parser.add_argument('--num-routing', default=3, type=int, help='The number layers of training model.')
     parser.add_argument('--dataset', default='student', type=str, help='The dataset of training model.')
-    parser.add_argument('--model',default='BGAMultiHeadNet', type=str,help='The pretrained model path.')
+    parser.add_argument('--model',default='BGANet', type=str,help='The pretrained model path.')
     parser.add_argument('--student-raw',default='心得体会汇总2020-2021.xlsx',type=str,help='The raw student file.')
     parser.add_argument('--version',default='v1.10',type=str,help='The processed student file.')
     args = parser.parse_args()
@@ -31,7 +36,7 @@ def check_args(args):
     args.dataset = args.dataset.lower()
     #args.model = args.model.lower()
     #args.model_name = args.model +"_"+args.rnn_type.upper() +"_" + str(uuid.uuid1()).replace('-','').upper()
-    if args.model == 'BGANetNoneGate' or args.model == 'bertrnn' or args.model == 'BGANet':
+    if 'BGANet' in args.model or args.model == 'AttModel':
         args.model_name = args.model + "_" + args.rnn_type + "_" + str(uuid.uuid1()).replace('-','').upper()
     else:
         args.model_name = args.model + "_" + str(uuid.uuid1()).replace('-','').upper()
