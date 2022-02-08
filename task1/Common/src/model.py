@@ -162,7 +162,6 @@ class RNNModel(nn.Module):
         self.in_dim = self.bert.config.hidden_size
 
         self.hid_dim = self.in_dim//8
-        self.inform_dim = self.hid_dim//4
         self.n_class = n_class
         self.rnn_type = rnn_type
         self.n_filters = n_filters
@@ -172,7 +171,7 @@ class RNNModel(nn.Module):
             dim_k = self.hid_dim//2
             self.att_rnn = BiRNNAttMultiHead(self.in_dim,self.hid_dim//2,dim_k,rnn_type,num_layers)
         else:
-            self.att_rnn = BiRNNAtt(self.in_dim,self.inform_dim,num_layers,rnn_type)
+            self.att_rnn = BiRNNAtt(self.in_dim,self.hid_dim//2,num_layers,rnn_type)
         self.op = nn.Linear(self.hid_dim, n_class)
     def forward(self,in_ids,att_masks):
         output = self.bert(input_ids=in_ids,attention_mask=att_masks)
@@ -199,7 +198,7 @@ class AttModel(nn.Module):
             self.att = AttentionLayer(self.in_dim,self.hid_dim)
         else:
             self.att = SelfAttLayer(self.in_dim,self.hid_dim)
-        self.op = nn.Linear(self.hid_dim, n_class)
+        self.op = nn.Linear(self.in_dim, n_class)
     def forward(self,in_ids,att_masks):
         output = self.bert(input_ids=in_ids,attention_mask=att_masks)
         last_hidden_state = output['last_hidden_state']
