@@ -1,18 +1,24 @@
 import os
+from statistics import mode
 import time
 import logging
+import numpy as np
 import torch
+from torch.utils.data import DataLoader
 
 from config import check_args,args_parse
-from utils import process_dataset
-from data import SkipGramDataset,CBOWDataset
-from model import SkipGramModel,CBOWModel
+from utils import process_dataset,build_cooccurrence_matrix
+from data import build_vocabulary,glove_batchfy
+from data import Dictionary, SkipGramDataset,CBOWDataset,GloveDataset,FasttextDataset
+from model import GloveModel, SkipGramModel,CBOWModel
+
 
 logging.basicConfig(level = logging.INFO,format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger()
-
-def train(args):
-    pass
+def save_list(loss_list,save_loss_file):
+    with open(save_loss_file,mode="w",encoding="utf-8") as wfp:
+        for value in loss_list:
+            wfp.write(str(value)+"\n")
 def to_tensor(pos_pairs, neg_pairs,device):
     pos_u = [int(pair[0]) for pair in pos_pairs]
     pos_v = [int(pair[1]) for pair in pos_pairs]
@@ -20,15 +26,17 @@ def to_tensor(pos_pairs, neg_pairs,device):
     neg_v = [int(pair[1]) for pair in neg_pairs]
     pos_u = torch.tensor(pos_u,dtype=torch.long).to(device)
     pos_v = torch.tensor(pos_v,dtype=torch.long).to(device)
-    neg_u = torch.tensor(neg_u,dtype=torch.long).to(device)
     neg_v = torch.tensor(neg_v,dtype=torch.long).to(device)
     return pos_u,pos_v,neg_u,neg_v
-def main(args):
+def to_device(item,device):
+    out_item = []
+    for ex in item:
+        out_item.append(ex.to(device))
+    return out_item
+def train_word2vec(args):
     processed_dataset_file = os.path.join(args.result_dir,"processed.txt")
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    if not os.path.exists(processed_dataset_file):
-        process_dataset(args.data_dir,args.result_dir,args.dataset)
-    logger.info("Saved raw dataset file in path:%s"%processed_dataset_file)
+
     # preparing for the dataset
     processed_dataset_dict_file = os.path.join(args.result_dir,"dictionary.json")
     if args.model.lower() == "skipgram":
@@ -44,7 +52,7 @@ def main(args):
         embedding_file = os.path.join(args.result_dir,"skip_gram_embedding.txt")
     elif args.model.lower() == "cbow":
         logger.info("CBOW Training......")
-        train_dataset = CBOWModel(processed_dataset_file,processed_dataset_dict_file,
+        train_dataset = CBOWDataset(processed_dataset_file,processed_dataset_dict_file,
             min_count=args.min_count,
             batch_size=args.batch_size,
             window_size=args.window_size,
@@ -86,6 +94,46 @@ def main(args):
     
     model.save_embedding(train_dataset.data_dict,embedding_file)
     logger.info("Model saved in file %s"%embedding_file)
+    save_loss_file = os.path.join(args.log_dir,args.model_name+"_loss.txt") 
+    save_list(loss_list,save_loss_file)
+    logger.info("Loss saved in file %s"%save_loss_file)
+def train_glove(args):
+    processed_dataset_file = os.path.join(args.result_dir,"processed.txt")
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    # preparing for the dataset
+    processed_dataset_dict_file = os.path.join(args.result_dir,"dictionary.json")
+    data_dict = Dictionary.load(processed_dataset_dict_file)
+    dataset,data_dict,word_frequency,sentence_length,sentence_count = build_vocabulary(processed_dataset_file,processed_dataset_dict_file,args.min_count)
+    coo_matrix = build_cooccurrence_matrix(dataset,word_frequency,args.window_size)
+    train_dataset = GloveDataset(coo_matrix)
+    train_dataloader = DataLoader(train_dataset,batch_size=args.batch_size,shuffle=True,
+                pin_memory=True,collate_fn=glove_batchfy)
+    model = GloveModel(len(data_dict),args.embedding_dim,args.x_max,args.alpha)
+    model.to(device)
+    optimizer = torch.optim.SGD(model.parameters(),lr=args.learning_rate)
+    logger.info("Dataset length %d"%len(train_dataset))
+    loss_list = []
+    for epoch in range(args.epoch_times):
+        avg_epoch_loss = 0.0
+        for item in train_dataloader:
+            optimizer.zero_grad()
+            item = to_device(item,device)
+            loss = model(*item)
+            loss.backward()
+            optimizer.step()
+            avg_epoch_loss += loss.cpu().detach().item()
+        avg_epoch_loss /= len(train_dataloader)
+        loss_list.append(avg_epoch_loss)
+        logger.info(f"Epoches {epoch + 1}, complete!, avg loss {avg_epoch_loss}.")
+    embedding_file = os.path.join(args.result_dir,"glove_embedding.txt")
+    model.save_embedding(data_dict,embedding_file)
+    logger.info("Embedding file saved in %s"%embedding_file)
+    save_loss_file = os.path.join(args.log_dir,args.model_name+"_loss.txt") 
+    save_list(loss_list,save_loss_file)
+    logger.info("Loss saved in file %s"%save_loss_file)
+def train_fasttext(args):
+    pass
 if __name__ == "__main__":
     # processing the document
     args = args_parse()
@@ -104,4 +152,15 @@ if __name__ == "__main__":
     # Fourth，add loggerin the handler
     logger.addHandler(fh)
     logger.info(str(args))
-    main(args)
+    if args.model.lower()=='skipgram' or args.model.lower()=='cbow':
+        processed_dataset_file = os.path.join(args.result_dir,"processed.txt")
+        if not os.path.exists(processed_dataset_file):
+            process_dataset(args.data_dir,args.result_dir,args.dataset)
+        logger.info("Saved raw dataset file in path:%s"%processed_dataset_file)
+        train_word2vec(args)
+    elif args.model.lower()=='glove':
+        train_glove(args)
+    elif args.model.lower()=='fasttext':
+        train_fasttext(args)
+    else:
+        raise ValueError()

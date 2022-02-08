@@ -3,8 +3,11 @@ import numpy as np
 import json
 from collections import deque
 from tqdm import tqdm
+import torch
+from torch.utils.data import Dataset
 
 from huffman import HuffmanTree
+
 
 class Dictionary:
     def __init__(self):
@@ -51,6 +54,9 @@ class Dictionary:
             tp_dict.ind2token = data["ind2token"]
             tp_dict.end_index = len(tp_dict.ind2token)
         return tp_dict
+    def __contains__(self,word):
+        assert type(word) == str
+        return word in self.token2ind
     def __len__(self):
         return len(self.token2ind)
     def __repr__(self) -> str:
@@ -59,31 +65,31 @@ class Dictionary:
     def __str__(self) -> str:
         return '{}(num_keys={})'.format(
             self.__class__.__name__,len(self.token2ind))
-def get_words(load_file_name,file_dict_name,min_count):
-        sentence_length = 0
-        sentence_count = 0
-        data_dict = Dictionary()
-        word_frequency = dict()
-        dataset = []
-        with open(load_file_name,mode="r",encoding="utf-8") as rfp:
-            for line in rfp:
-                sentence = line.strip().split('\t')
-                dataset.append(sentence)
-                sentence_length += len(sentence)
-                # words
-                for word in sentence:
-                    data_dict.add(word)
-                    if word in word_frequency:
-                        word_frequency[word] += 1
-                    else:
-                        word_frequency[word] = 1
-                sentence_count += 1
-        for ids in word_frequency:
-            num_count = word_frequency[ids]
-            if num_count<min_count:
-                sentence_length -= num_count
-        data_dict.save(file_dict_name)
-        return dataset,data_dict,word_frequency,sentence_length,sentence_count
+def build_vocabulary(load_file_name,file_dict_name,min_count):
+    sentence_length = 0
+    sentence_count = 0
+    data_dict = Dictionary()
+    word_frequency = dict()
+    dataset = []
+    with open(load_file_name,mode="r",encoding="utf-8") as rfp:
+        for line in rfp:
+            sentence = line.strip().split('\t')
+            dataset.append(sentence)
+            sentence_length += len(sentence)
+            # words
+            for word in sentence:
+                data_dict.add(word)
+                if word in word_frequency:
+                    word_frequency[word] += 1
+                else:
+                    word_frequency[word] = 1
+            sentence_count += 1
+    for ids in word_frequency:
+        num_count = word_frequency[ids]
+        if num_count<min_count:
+            sentence_length -= num_count
+    data_dict.save(file_dict_name)
+    return dataset,data_dict,word_frequency,sentence_length,sentence_count
 def init_sample_table(word_frequency):
     sample_table = []
     sample_table_size = 1e8
@@ -103,7 +109,7 @@ class AbstractDataset(metaclass=abc.ABCMeta):
         self.batch_size = batch_size
         self.word_pair_catch = deque()
         self.old_index = 0
-        self.dataset,self.data_dict,self.word_frequency,self.sentence_length,self.sentence_count = get_words(file_name,file_dict_name,min_count)
+        self.dataset,self.data_dict,self.word_frequency,self.sentence_length,self.sentence_count = build_vocabulary(file_name,file_dict_name,min_count)
         self.word_count = len(self.data_dict)
         self.use_hs = use_hs
         if use_hs:
@@ -197,3 +203,40 @@ class CBOWDataset(AbstractDataset):
         for _ in range(self.batch_size):
             batch_pairs.append(self.word_pair_catch.popleft())
         return batch_pairs
+class GloveDataset(Dataset):
+    def __init__(self,coo_matrix):
+        super(GloveDataset,self).__init__()
+        self.coo_matrix = [((i, j), coo_matrix.data[i][pos]) for i, row in enumerate(coo_matrix.rows) for pos, j in
+                           enumerate(row)]
+    def __getitem__(self,idx):
+        sample_data = self.coo_matrix[idx]
+        sample = {"c_ids": sample_data[0][0],
+                  "p_ids": sample_data[0][1],
+                  "labels": sample_data[1]}
+        return sample
+    def __len__(self):
+        return len(self.coo_matrix)
+def glove_batchfy(batch):
+    c_ids = [ex["c_ids"] for ex in batch]
+    p_ids = [ex["p_ids"] for ex in batch]
+    labels = [ex["labels"] for ex in batch]
+    c_ids = torch.tensor(c_ids,dtype=torch.long)
+    p_ids = torch.tensor(p_ids,dtype=torch.long)
+    labels = torch.tensor(labels,dtype=torch.float)
+    return c_ids,p_ids,labels
+
+
+
+
+
+
+
+
+
+class FasttextDataset(Dataset):
+    def __init__(self):
+        super(FasttextDataset,self).__init__()
+    def __getitem__(self,item):
+        pass
+    def __len__(self):
+        pass

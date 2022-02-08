@@ -1,3 +1,4 @@
+from cProfile import label
 import numpy as np
 from tqdm import tqdm
 import torch
@@ -73,11 +74,11 @@ class CBOWModel(nn.Module):
 
         loss = pos_score.sum() + neg_score.sum()
         return -loss
-    def save_embedding(self,id2word,file_name):
+    def save_embedding(self,data_dict,file_name):
         embedding = self.u_embeddings.cpu().weight.data.numpy()
         with open(file_name, 'w', encoding="UTF-8") as f_out:
-            f_out.write('%d %d\n' % (len(id2word), self.embedding_dim))
-            for wid, w in tqdm(enumerate(id2word)):
+            f_out.write('%d %d\n' % (len(data_dict), self.embedding_dim))
+            for wid, w in tqdm(enumerate(data_dict)):
                 e = embedding[wid]
                 e = '\t'.join(map(lambda x: str(x), e))
                 f_out.write('%s %s\n' % (w, e))
@@ -101,19 +102,19 @@ class GloveModel(nn.Module):
         c_data_bias = self.c_bias(c_data)
         p_embed = self.p_embeddings(p_data)
         p_data_bias = self.p_bias(p_data)
-
+        score = torch.sum(c_emded.mul(p_embed), 1, keepdim=True) + c_data_bias + p_data_bias
         weight = torch.pow(labels/self.x_max,self.alpha)
         weight[weight>1] = 1.0
         # calculate the loss
-        loss = torch.mean(weight*torch.pow(torch.sum(c_emded*p_embed,1)+c_data_bias+p_data_bias - torch.log(labels),2))
+        loss = torch.mean(weight*torch.pow(score - torch.log(labels),2))
         return loss
-    def save_embedding(self, word2idx, file_name):
-        embedding1 = self.c_embed.weight.data.cpu().numpy()
-        embedding2 = self.p_embed.weight.data.cpu().numpy()
+    def save_embedding(self, data_dict, file_name):
+        embedding1 = self.c_embeddings.weight.data.cpu().numpy()
+        embedding2 = self.p_embeddings.weight.data.cpu().numpy()
         embedding = (embedding1 + embedding2) / 2
         f = open(file_name, 'w')
-        f.write('%d %d\n' % (len(word2idx), self.embedding_dim))
-        for w, idx in word2idx.items():
+        f.write('%d %d\n' % (len(data_dict), self.embedding_dim))
+        for idx, w in tqdm(enumerate(data_dict)):
             e = embedding[idx]
             e = '\t'.join(map(lambda x: str(x), e))
             f.write('%s %s\n' % (w, e))
