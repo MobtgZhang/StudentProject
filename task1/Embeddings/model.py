@@ -1,4 +1,5 @@
 import numpy as np
+from tqdm import tqdm
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -29,7 +30,7 @@ class SkipGramModel(nn.Module):
         loss = pos_score.sum()+neg_score.sum()
         return -loss
     def save_embedding(self,id2word,file_name):
-        embedding = self.u_embeddings.weight.data.numpy()
+        embedding = self.u_embeddings.cpu().weight.data.numpy()
         with open(file_name, 'w', encoding="UTF-8") as f_out:
             f_out.write('%d %d\n' % (len(id2word), self.embedding_dim))
             for wid, word in enumerate(id2word):
@@ -45,7 +46,7 @@ class CBOWModel(nn.Module):
         self.v_embeddings = nn.Embedding(vocab_size,embedding_dim,sparse=True)
         self.init_embeddings()
     def init_embeddings(self,):
-        initrange = 0.5 / self.emb_dimension
+        initrange = 0.5 / self.embedding_dim
         self.u_embeddings.weight.data.uniform_(-initrange, initrange)
         self.v_embeddings.weight.data.uniform_(-0, 0)
     def forward(self,pos_u,pos_v,neg_u,neg_v):
@@ -73,10 +74,10 @@ class CBOWModel(nn.Module):
         loss = pos_score.sum() + neg_score.sum()
         return -loss
     def save_embedding(self,id2word,file_name):
-        embedding = self.u_embeddings.weight.data.numpy()
+        embedding = self.u_embeddings.cpu().weight.data.numpy()
         with open(file_name, 'w', encoding="UTF-8") as f_out:
             f_out.write('%d %d\n' % (len(id2word), self.embedding_dim))
-            for wid, w in enumerate(id2word):
+            for wid, w in tqdm(enumerate(id2word)):
                 e = embedding[wid]
                 e = '\t'.join(map(lambda x: str(x), e))
                 f_out.write('%s %s\n' % (w, e))

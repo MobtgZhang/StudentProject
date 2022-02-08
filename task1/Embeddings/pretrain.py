@@ -5,8 +5,8 @@ import torch
 
 from config import check_args,args_parse
 from utils import process_dataset
-from data import SkipGramDataset
-from model import SkipGramModel
+from data import SkipGramDataset,CBOWDataset
+from model import SkipGramModel,CBOWModel
 
 logging.basicConfig(level = logging.INFO,format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger()
@@ -31,18 +31,35 @@ def main(args):
     logger.info("Saved raw dataset file in path:%s"%processed_dataset_file)
     # preparing for the dataset
     processed_dataset_dict_file = os.path.join(args.result_dir,"dictionary.json")
-    train_dataset = SkipGramDataset(processed_dataset_file,processed_dataset_dict_file,
+    if args.model.lower() == "skipgram":
+        logger.info("Skip_Gram Training......")
+        train_dataset = SkipGramDataset(processed_dataset_file,processed_dataset_dict_file,
             min_count=args.min_count,
             batch_size=args.batch_size,
             window_size=args.window_size,
             use_hs=args.use_hs)
-    # define the model
-    vocab_size = len(train_dataset.data_dict)
-    model = SkipGramModel(vocab_size,args.embedding_dim)
+        # define the model
+        vocab_size = len(train_dataset.data_dict)
+        model = SkipGramModel(vocab_size,args.embedding_dim)
+        embedding_file = os.path.join(args.result_dir,"skip_gram_embedding.txt")
+    elif args.model.lower() == "cbow":
+        logger.info("CBOW Training......")
+        train_dataset = CBOWModel(processed_dataset_file,processed_dataset_dict_file,
+            min_count=args.min_count,
+            batch_size=args.batch_size,
+            window_size=args.window_size,
+            use_hs=args.use_hs)
+        # define the model
+        vocab_size = len(train_dataset.data_dict)
+        model = CBOWModel(vocab_size,args.embedding_dim)
+        embedding_file = os.path.join(args.result_dir,"cbow_embedding.txt")
+    else:
+        raise ValueError()
     model.to(device)
     optimizer = torch.optim.SGD(model.parameters(),lr=args.learning_rate)
-    logger.info("Skip_Gram Training......")
+    
     loss_list = []
+    
     pair_count = train_dataset.evaluate_pair_count()
     batch_count = int(args.epoch_times * pair_count / args.batch_size)
     logger.info("pair_count %d,batch_count %d"%(pair_count,batch_count))
@@ -59,15 +76,16 @@ def main(args):
         loss.backward()
         optimizer.step()
         loss_total = loss.cpu().item()
-        if args.epoch_times*batch_idx % 10000 == 0:
+        if args.model.lower() == "skipgram" and args.epoch_times*batch_idx % 10000 == 0:
             lr = args.learning_rate * (1.0 - 1.0 * batch_idx / batch_count)
             for param_group in optimizer.param_groups:
                 param_group['lr'] = lr
             logger.info("epoch %d, loss: %0.8f, lr: %0.6f" % (batch_idx,loss_total, optimizer.param_groups[0]['lr']))
         loss_v = loss_total/batch_count
         loss_list.append(loss_v)
-    embedding_file = os.path.join(args.result_dir,"skip_gram_embedding.txt")
+    
     model.save_embedding(train_dataset.data_dict,embedding_file)
+    logger.info("Model saved in file %s"%embedding_file)
 if __name__ == "__main__":
     # processing the document
     args = args_parse()

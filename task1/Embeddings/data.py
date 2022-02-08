@@ -84,17 +84,32 @@ def get_words(load_file_name,file_dict_name,min_count):
                 sentence_length -= num_count
         data_dict.save(file_dict_name)
         return dataset,data_dict,word_frequency,sentence_length,sentence_count
+def init_sample_table(word_frequency):
+    sample_table = []
+    sample_table_size = 1e8
+    pow_frequency = np.array(list(word_frequency.values()))**0.75
+    words_pow = sum(pow_frequency)
+    ratio = pow_frequency / words_pow
+    count = np.round(ratio * sample_table_size)
+    for wid, c in tqdm(enumerate(count),desc="Building sample table"):
+        sample_table += [wid] * int(c)
+    sample_table = np.array(sample_table)
+    return sample_table
 class AbstractDataset(metaclass=abc.ABCMeta):
-    def __init__(self,file_name,file_dict_name,min_count,batch_size,window_size):
+    def __init__(self,file_name,file_dict_name,min_count,batch_size,use_hs):
         self.file_name = file_name
         self.file_dict_name = file_dict_name
         self.min_count = min_count
         self.batch_size = batch_size
-        self.window_size = window_size
         self.word_pair_catch = deque()
         self.old_index = 0
         self.dataset,self.data_dict,self.word_frequency,self.sentence_length,self.sentence_count = get_words(file_name,file_dict_name,min_count)
         self.word_count = len(self.data_dict)
+        self.use_hs = use_hs
+        if use_hs:
+            tree = HuffmanTree(self.word_frequency)
+            self.huffman_positive, self.huffman_negative = tree.get_huffman_code_and_path()
+        self.sample_table = init_sample_table(self.word_frequency)
     def get_index(self):
         length = len(self.dataset)
         tp_index = self.old_index
@@ -103,35 +118,33 @@ class AbstractDataset(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def get_batch_pairs(self):
         raise NotImplementedError()
-    @abc.abstractmethod
-    def get_pairs_by_neg_sampling(self):
-        raise NotImplementedError()
-    @abc.abstractmethod
-    def get_pairs_by_huffman(self):
-        raise NotImplementedError()
-    def evaluate_pair_count(self):
-        return self.sentence_length * (2 * self.window_size - 1) - (
-            self.sentence_count - 1) * (1 + self.window_size) * self.window_size
+    def get_pairs_by_neg_sampling(self,pos_word_pair,count):
+        neg_word_pair = []
+        for pair in pos_word_pair:
+            neg_v = np.random.choice(self.sample_table, size=count)
+            neg_word_pair += zip([pair[0]] * count, neg_v)
+        return pos_word_pair, neg_word_pair
+    def get_pairs_by_huffman(self, pos_word_pair):
+        neg_word_pair = []
+        for i in range(len(pos_word_pair)):
+            pair = pos_word_pair[i]
+            pos_word_pair += zip([pair[0]] *
+                                 len(self.huffman_positive[pair[1]]),
+                                 self.huffman_positive[pair[1]])
+            neg_word_pair += zip([pair[0]] *
+                                 len(self.huffman_negative[pair[1]]),
+                                 self.huffman_negative[pair[1]])
+
+        return pos_word_pair, neg_word_pair
     def __len__(self):
         return len(self.dataset)
 class SkipGramDataset(AbstractDataset):
     def __init__(self,file_name,file_dict_name,min_count=5,batch_size=128,window_size=5,use_hs=False):
-        super(SkipGramDataset,self).__init__(file_name,file_dict_name,min_count,batch_size,window_size)
-        self.use_hs = use_hs
-        if use_hs:
-            tree = HuffmanTree(self.word_frequency)
-            self.huffman_positive, self.huffman_negative = tree.get_huffman_code_and_path()
-        self.init_sample_table()
-    def init_sample_table(self):
-        self.sample_table = []
-        sample_table_size = 1e8
-        pow_frequency = np.array(list(self.word_frequency.values()))**0.75
-        words_pow = sum(pow_frequency)
-        ratio = pow_frequency / words_pow
-        count = np.round(ratio * sample_table_size)
-        for wid, c in tqdm(enumerate(count),desc="Building sample table"):
-            self.sample_table += [wid] * int(c)
-        self.sample_table = np.array(self.sample_table)
+        super(SkipGramDataset,self).__init__(file_name,file_dict_name,min_count,batch_size,use_hs)
+        self.window_size = window_size
+    def evaluate_pair_count(self):
+        return self.sentence_length * (2 * self.window_size - 1) - (
+            self.sentence_count - 1) * (1 + self.window_size) * self.window_size
     def get_batch_pairs(self):
         while len(self.word_pair_catch) < self.batch_size:
             tempary_len = 10000
@@ -152,22 +165,35 @@ class SkipGramDataset(AbstractDataset):
         for _ in range(self.batch_size):
             batch_pairs.append(self.word_pair_catch.popleft())
         return batch_pairs
-    def get_pairs_by_neg_sampling(self,pos_word_pair,count):
-        neg_word_pair = []
-        for pair in pos_word_pair:
-            neg_v = np.random.choice(self.sample_table, size=count)
-            neg_word_pair += zip([pair[0]] * count, neg_v)
-        return pos_word_pair, neg_word_pair
-    def get_pairs_by_huffman(self, pos_word_pair):
-        neg_word_pair = []
-        a = len(self.word2id) - 1
-        for i in range(len(pos_word_pair)):
-            pair = pos_word_pair[i]
-            pos_word_pair += zip([pair[0]] *
-                                 len(self.huffman_positive[pair[1]]),
-                                 self.huffman_positive[pair[1]])
-            neg_word_pair += zip([pair[0]] *
-                                 len(self.huffman_negative[pair[1]]),
-                                 self.huffman_negative[pair[1]])
-
-        return pos_word_pair, neg_word_pair
+class CBOWDataset(AbstractDataset):
+    def __init__(self,file_name,file_dict_name,min_count=5,batch_size=128,context_size=2,use_hs=False):
+        super(CBOWDataset,self).__init__(file_name,file_dict_name,min_count,batch_size,use_hs)
+        self.context_size = context_size
+    def evaluate_pair_count(self):
+        return self.sentence_length * (2 * self.context_size - 1) - (
+            self.sentence_count - 1) * (1 + self.context_size) * self.context_size
+    def get_batch_pairs(self):
+        while len(self.word_pair_catch) < self.batch_size:
+            tempary_len = 10000
+            for _ in range(tempary_len):
+                tp_index = self.get_index()
+                sentence = self.dataset[tp_index]
+                word_ids = []
+                for word in sentence:
+                    word_ids.append(self.data_dict[word])
+                for i, u in enumerate(word_ids):
+                    contentw = []
+                    for j, v in enumerate(word_ids):
+                        assert u < self.word_count
+                        assert v < self.word_count
+                        if i == j:
+                            continue
+                        elif j >= max(0, i - self.context_size + 1) and j <= min(len(word_ids), i + self.context_size-1):
+                            contentw.append(v)
+                    if len(contentw) == 0:
+                        continue
+                    self.word_pair_catch.append((contentw, u))
+        batch_pairs = []
+        for _ in range(self.batch_size):
+            batch_pairs.append(self.word_pair_catch.popleft())
+        return batch_pairs
