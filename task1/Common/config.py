@@ -40,7 +40,7 @@ def check_args(args):
         os.mkdir(args.log_dir)
     args.dataset = args.dataset.lower()
     if args.model =="BGANet" or args.model == 'AttModel' or args.model =="TCHNN":
-        args.model_name = args.model + "_" + args.rnn_type + "_" + str(uuid.uuid1()).replace('-','').upper()
+        args.model_name = args.model + "_Bi" + args.rnn_type.upper() + "_" + str(uuid.uuid1()).replace('-','').upper()
     else:
         args.model_name = args.model + "_" + str(uuid.uuid1()).replace('-','').upper()
     args.log_dir = os.path.join(args.log_dir,args.dataset,args.model_name)
