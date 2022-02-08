@@ -1,3 +1,4 @@
+from turtle import pos
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -197,7 +198,8 @@ class AttModel(nn.Module):
         if multiple:
             self.att = AttentionLayer(self.in_dim,self.hid_dim)
         else:
-            self.att = SelfAttLayer(self.in_dim,self.hid_dim)
+            dim_k = self.hid_dim//2
+            self.att = SelfAttLayer(self.in_dim,dim_k,self.hid_dim)
         self.op = nn.Linear(self.in_dim, n_class)
     def forward(self,in_ids,att_masks):
         output = self.bert(input_ids=in_ids,attention_mask=att_masks)
@@ -206,4 +208,56 @@ class AttModel(nn.Module):
         o_soft = self.op(f_att)
         probability = F.softmax(o_soft, dim=1)
         return probability
-
+class MultiEmbedding(nn.Module):
+    def __init__(self,vocab_size,pos_size = 1024,seg_size=64,embedding_dim=300):
+        super(MultiEmbedding,self).__init__()
+        self.w_embeddings = nn.Embedding(vocab_size,embedding_dim)
+        self.p_embeddings = nn.Embedding(pos_size,embedding_dim)
+        self.s_embeddings = nn.Embedding(seg_size,embedding_dim)
+    def forward(self,word_ids,mask_ids=None):
+        device = word_ids.device
+        seq_len = word_ids.shape[1]
+        word_embd = self.w_embeddings(word_ids)
+        pos_ids = torch.arange(0,seq_len).expand_as(word_ids).to(device)
+        pos_embd = self.p_embeddings(pos_ids)
+        if mask_ids is None:
+            mask_ids = torch.zeros(seq_len,dtype=torch.long).expand_as(word_ids).to(device)
+        mask_embd = self.s_embeddings(mask_ids)
+        embd = word_embd + mask_embd + pos_embd
+        return F.dropout(embd,p=0.2)
+class GloveMultiAttention(nn.Module):
+    def __init__(self,vocab_size,embedding_dim,hidden_dim,n_class,pos_size = 1024,seg_size=64):
+        super(GloveMultiAttention,self).__init__()
+        self.vocab_size = vocab_size
+        self.pos_size = pos_size
+        self.seg_size = seg_size
+        self.embedding_dim = embedding_dim
+        self.hidden_dim = hidden_dim
+        self.key_dim = hidden_dim//2
+        self.n_class = n_class
+        self.embeddings = MultiEmbedding(vocab_size,pos_size,seg_size,embedding_dim)
+        self.bi_att = BiRNNAttMultiHead(embedding_dim,hidden_dim//2,self.key_dim,rnn_type="gru",num_layers=1)
+        self.lin = nn.Linear(hidden_dim,n_class)
+    def forward(self,word_ids,mask_ids):
+        embed = self.embeddings(word_ids,mask_ids)
+        att_embed = self.bi_att(embed)
+        pred = self.lin(att_embed)
+        return F.softmax(pred,dim=1)
+class GloveGRU(nn.Module):
+    def __init__(self,vocab_size,n_class,embedding_dim=300,hidden_dim=100,num_layers=1):
+        super(GloveGRU,self).__init__()
+        self.vocab_size = vocab_size
+        self.n_class = n_class
+        self.embedding_dim = embedding_dim
+        self.hidden_dim = hidden_dim
+        self.num_layers = num_layers
+        self.w_embeddings = nn.Embedding(vocab_size,embedding_dim)
+        self.gru = nn.GRU(input_size=embedding_dim,hidden_size=hidden_dim,batch_first=True,num_layers=num_layers)
+        self.lin = nn.Linear(num_layers*hidden_dim,n_class)
+    def forward(self,in_ids):
+        batch_size = in_ids.shape[0]
+        w_embd = self.w_embeddings(in_ids)
+        _,hidden = self.gru(w_embd)
+        hidden = hidden.view(batch_size,-1)
+        out = self.lin(hidden)
+        return F.softmax(out,dim=1)

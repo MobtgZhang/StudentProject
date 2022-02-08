@@ -20,6 +20,8 @@ def arg_parase():
     parser.add_argument('--cnn-dropout', default=0.2, type=float, help='The cnn dropour rate for training cnn model.')
     parser.add_argument('--n-filters', default=32, type=int, help='The number filters of training cnn layer model.')
     parser.add_argument('--num-layers', default=1, type=int, help='The number layers of training rnn layer model.')
+    parser.add_argument('--hid-dim', default=100, type=int, help='The number hidden layers of  model.')
+    parser.add_argument('--embedding-dim', default=300, type=int, help='The number embedding layers of  model.')
 
     parser.add_argument('--num-caps', default=4, type=int, help='The number capsules of training capsule layer model.')
     parser.add_argument('--dim-caps', default=32, type=int, help='The number dimensions of training capsule layer model.')
