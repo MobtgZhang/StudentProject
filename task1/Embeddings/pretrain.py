@@ -7,9 +7,9 @@ import torch
 from torch.utils.data import DataLoader
 
 from config import check_args,args_parse
-from utils import process_dataset,build_cooccurrence_matrix
-from data import build_vocabulary,glove_batchfy
-from data import Dictionary, SkipGramDataset,CBOWDataset,GloveDataset,FasttextDataset
+from utils import process_dataset
+from data import glove_batchfy
+from data import SkipGramDataset,CBOWDataset,GloveDataset,FasttextDataset
 from model import GloveModel, SkipGramModel,CBOWModel
 
 
@@ -99,21 +99,20 @@ def train_word2vec(args):
     logger.info("Loss saved in file %s"%save_loss_file)
 def train_glove(args):
     processed_dataset_file = os.path.join(args.result_dir,"processed.txt")
+    processed_dict_file = os.path.join(args.result_dir,"dictionary.json")
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     # preparing for the dataset
-    processed_dataset_dict_file = os.path.join(args.result_dir,"dictionary.json")
-    data_dict = Dictionary.load(processed_dataset_dict_file)
-    dataset,data_dict,word_frequency,sentence_length,sentence_count = build_vocabulary(processed_dataset_file,processed_dataset_dict_file,args.min_count)
-    coo_matrix = build_cooccurrence_matrix(dataset,word_frequency,args.window_size)
-    train_dataset = GloveDataset(coo_matrix)
+    train_dataset = GloveDataset(processed_dataset_file,processed_dict_file,
+                        args.min_count,args.window_size)
     train_dataloader = DataLoader(train_dataset,batch_size=args.batch_size,shuffle=True,
                 pin_memory=True,collate_fn=glove_batchfy)
-    model = GloveModel(len(data_dict),args.embedding_dim,args.x_max,args.alpha)
+    model = GloveModel(len(train_dataset.data_dict),args.embedding_dim,args.x_max,args.alpha)
     model.to(device)
     optimizer = torch.optim.SGD(model.parameters(),lr=args.learning_rate)
     logger.info("Dataset length %d"%len(train_dataset))
     loss_list = []
+    logger.info("Glove Training......")
     for epoch in range(args.epoch_times):
         avg_epoch_loss = 0.0
         for item in train_dataloader:
@@ -127,7 +126,7 @@ def train_glove(args):
         loss_list.append(avg_epoch_loss)
         logger.info(f"Epoches {epoch + 1}, complete!, avg loss {avg_epoch_loss}.")
     embedding_file = os.path.join(args.result_dir,"glove_embedding.txt")
-    model.save_embedding(data_dict,embedding_file)
+    model.save_embedding(train_dataset.data_dict,embedding_file)
     logger.info("Embedding file saved in %s"%embedding_file)
     save_loss_file = os.path.join(args.log_dir,args.model_name+"_loss.txt") 
     save_list(loss_list,save_loss_file)
@@ -152,10 +151,10 @@ if __name__ == "__main__":
     # Fourth，add loggerin the handler
     logger.addHandler(fh)
     logger.info(str(args))
-    if args.model.lower()=='skipgram' or args.model.lower()=='cbow':
-        processed_dataset_file = os.path.join(args.result_dir,"processed.txt")
-        if not os.path.exists(processed_dataset_file):
-            process_dataset(args.data_dir,args.result_dir,args.dataset)
+    processed_dataset_file = os.path.join(args.result_dir,"processed.txt")
+    if not os.path.exists(processed_dataset_file):
+        process_dataset(args.data_dir,args.result_dir,args.dataset)
+    if args.model.lower()=='skipgram' or args.model.lower()=='cbow':  
         logger.info("Saved raw dataset file in path:%s"%processed_dataset_file)
         train_word2vec(args)
     elif args.model.lower()=='glove':

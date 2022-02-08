@@ -3,6 +3,7 @@ import numpy as np
 import json
 from collections import deque
 from tqdm import tqdm
+from scipy.sparse import lil_matrix
 import torch
 from torch.utils.data import Dataset
 
@@ -13,7 +14,7 @@ class Dictionary:
     def __init__(self):
         self.name = 'default'
         self.ind2token = ['<PAD>','<START>','<END>','<UNK>',]
-        self.token2ind = {0:'<PAD>',1:'<START>',2:'<END>',3:'<UNK>'}
+        self.token2ind = {'<PAD>':0,'<START>':1,'<END>':2,'<UNK>':3}
         self.start_index = 0
         self.end_index = len(self.ind2token)
     def __iter__(self):
@@ -203,9 +204,27 @@ class CBOWDataset(AbstractDataset):
         for _ in range(self.batch_size):
             batch_pairs.append(self.word_pair_catch.popleft())
         return batch_pairs
+def build_cooccurrence_matrix(dataset,word_frequency, windows_size=5):
+    cooccurrence_matrix = lil_matrix((len(word_frequency), len(word_frequency)),dtype=np.float)
+    for line in dataset:
+        sentence_length = len(line)
+        for i in range(sentence_length):
+            center_w = line[i]
+            if center_w not in word_frequency:
+                continue
+            left_ws = line[max(i-windows_size,0):i]
+            for i, w in enumerate(left_ws[::-1]):
+                if w not in word_frequency:
+                    continue
+                cooccurrence_matrix[word_frequency[center_w],word_frequency[w]] += 1.0 / (i+1.0)
+                # cooccurrence_matrix is Symmetric Matrices
+                cooccurrence_matrix[word_frequency[w],word_frequency[center_w]] += 1.0 / (i+1.0)
+    return cooccurrence_matrix
 class GloveDataset(Dataset):
-    def __init__(self,coo_matrix):
+    def __init__(self,raw_file_name,dict_file_name,min_count,window_size):
         super(GloveDataset,self).__init__()
+        self.dataset,self.data_dict,self.word_frequency,self.sentence_length,self.sentence_count = build_vocabulary(raw_file_name,dict_file_name,min_count)
+        coo_matrix = build_cooccurrence_matrix(self.dataset,self.word_frequency,window_size)
         self.coo_matrix = [((i, j), coo_matrix.data[i][pos]) for i, row in enumerate(coo_matrix.rows) for pos, j in
                            enumerate(row)]
     def __getitem__(self,idx):
