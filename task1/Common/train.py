@@ -219,7 +219,8 @@ def main():
     elif args.dataset == 'restaurant':
         args.n_class = 2
         file_csv= os.path.join(args.data_dir,'restaurant','waimai_10k.csv')
-        raw_train,raw_test = get_raw_hotel_restaurant_dataset(file_csv,percentage=args.percentage)
+        raw_train,raw_test，eq_len = get_raw_hotel_restaurant_dataset(file_csv,percentage=args.percentage)
+        args.mean_seq_len = seq_len
         train_dataset = ReviewDataset(raw_train, tokenizer=tokenizer, max_limits=args.max_seqlen)
         test_dataset = ReviewDataset(raw_test, tokenizer=tokenizer, max_limits=args.max_seqlen)
     if args.model.lower() == "glove":
